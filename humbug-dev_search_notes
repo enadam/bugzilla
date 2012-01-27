@@ -1,0 +1,51 @@
+search by
+  -- program
+  -- component
+  -- subcomponent
+  -- priority
+  -- severity
+  -- keywords
+  -- assigneee, assigned-to-me
+  -- cc'd to, cc-ed-to-me
+  -- modified-since
+
+sort:
+  -- priority
+  -- severity
+  -- TM
+  -- modified-since
+  -- program, component, subcomponent
+
+@<<<< @<<<<<<<<<<<<<<<<< @<<<< @<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< @>>
+12345 major/high/2009-50 LATER F-Desktop Environment, matchbox-window-mana 10d
+      summary
+
+/BUG SEARCH
+/BUG SEARCH [-browse|-url|-new] <alias>
+/BUG SEARCH -save [<alias>]
+/BUG SEARCH -forget [<alias>]
+/BUG SEARCH -commit [<alias>]
+/BUG SEARCH
+	-browse|-url|-new
+	[-not] -bugs -lastmod -summary
+	-keywords|-kw [-not] -whiteboard|-wb
+	-all|-open|-fixed
+	-prio[rity] -severity|-svr
+	-prog[ram] -comp[onent] -subcomp[onent]
+	-mine -assignee -assigned-to -reporter|-reported-by
+	-qa -cc -commenter -who=assignee|reporter|qa|cc|commenter
+	-sort|-order {lastmod|stat[us]|imp[ortance]|prio[rity]|severity|svr|comp[onent]|tm}
+
+-order:
+	lastmod		bugs.delta_ts
+	status		bugs.bug_status,bugs.resolution
+	importance	bugs.priority,bugs.bug_severity
+	priority	bugs.priority
+	severity	bugs.bug_severity
+	component	map_classifications.name,map_products.name,map_components.name
+	tm		bugs.target_milestone
+
+cmdtype=dorem:
+	remaction=run, namedcmd
+cmdtype=doit:
+	remtype=asnamed, newqueryname, newquery

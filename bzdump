@@ -1,0 +1,187 @@
+#!/bin/sh -e
+#
+# bzdump -- dump anyone's bugs from Bugzilla in XML
+#
+# Synopsis:
+#   bzdump [[-P] <bugzilla-url>] <bugzilla-user> [<fields>...]
+#
+# <bugzilla-user> is the e-mail address or a substring thereof of the user
+# whose bugs to query.  Unless disabled with -P, for HTTPS URLs you'll be
+# prompted for your HTTP user name and password to access the server.
+#
+# The matched bugs are dumped to the standard output, which can be large.
+# If no <fields> are specified, almost everything is dumped, except the
+# bug attachments.
+#
+# bzdump depends on libwww-perl and xmllint.
+#
+
+# Make a HTTP request with libwww-perl's GET using $user and $pass
+# for authentication.
+getit()
+{
+	user="$1"; shift;
+	pass="$1"; shift;
+	if [ "$user" = "" -a "$pass" = "" ];
+	then
+		GET "$@";
+	else	# Pass $user and $pass through the standard input.
+		echo "$user:$pass" | perl -e '$0="GET"; chomp($_=readline(STDIN)); unshift(@ARGV, "-C", $_); push(@INC, split(/:/, $ENV{PATH})); require $0;' -- "$@";
+	fi
+}
+
+# Main starts here
+# To avoid excessive request/response lengths and server load, at most
+# $max_bugs_per_request are queried and $time_between_requests is kept.
+default_bugzilla="https://projects.maemo.org/bugzilla";
+max_bugs_per_request=10;
+time_between_requests=5;
+
+# Download bugs whose any of the $search_by fields contains <bugzilla-user>.
+search_by="reporter assigned_to qa_contact longdesc cc";
+
+# By default include these fields in the dump and nothing else,
+# especially not attachments.
+fields_to_dump="bug_id creation_ts delta_ts short_desc";
+fields_to_dump="$fields_to_dump classification product component";
+fields_to_dump="$fields_to_dump keywords cf_occurence";
+fields_to_dump="$fields_to_dump bug_status resolution status_whiteboard";
+fields_to_dump="$fields_to_dump flag priority bug_severity";
+fields_to_dump="$fields_to_dump reporter assigned_to qa_contact";
+fields_to_dump="$fields_to_dump long_desc";
+
+# Parse the command line.
+# Get the URL of the bugzilla to be queried.
+askpass="";
+if [ $# -eq 1 ];
+then
+	bz="$default_bugzilla";
+elif [ $# -ge 2 ];
+then
+	bz="$1";
+	shift;
+	if [ "x$1" = "x-P" ];
+	then
+		askpass="no";
+		shift;
+	fi
+fi
+
+# Get the bugzilla user we're interested in.
+if [ $# -eq 0 ];
+then
+	echo "$0: whom do you want to stalk?" >&2;
+	exit 1;
+else
+	who="$1";
+	shift;
+fi
+
+# Get the user-specified $fields_to_dump.
+if [ $# -gt 0 ];
+then
+	fields_to_dump="";
+	for field;
+	do
+		fields_to_dump="$fields_to_dump $field";
+	done
+fi
+
+# Get the HTTP $user and $pass if necessary.
+if [ "$askpass" = "" ];
+then
+	case "$bz" in
+	https:*) askpass="yes"; ;;
+	*)	 askpass="no";  ;;
+	esac
+fi
+if [ "$askpass" = "yes" ];
+then
+	stty -echo;
+	echo    "Bugzilla: $bz" >&2;
+	echo -n "Username: " >&2; read user; echo >&2;
+	echo -n "Password: " >&2; read pass; echo >&2;
+	stty  echo;
+else
+	user="";
+	pass="";
+fi
+
+# Construct the request $url to get the list of interesting bugs in CSV.
+url="$bz/buglist.cgi"
+url="$url?email1=$who";
+for field in $search_by;
+do
+	url="$url&email${field}1=1";
+done
+url="$url&emailtype1=substring";
+#url="$url&bug_severity=blocker";
+url="$url&ctype=csv";
+url="$url&columnlist=";
+
+# Get the matched bug IDs and dump the bugs in XML pretty-printed.
+getit "$user" "$pass" "$url" \
+| (
+	# In the CSV output the first line contains the column titles.
+	# Skip them.
+	read;
+
+	# We're going to download multiple XML documents and concatenate
+	# their <bug>s.  Print the header of the combined document.
+	cat << HEADER
+<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
+<!DOCTYPE bugzilla SYSTEM "$bz/bugzilla.dtd">
+<bugzilla urlbase="$bz">
+HEADER
+
+	# Process the output line by line.
+	set --;
+	batch="first";
+	while [ "$batch" != "last" ];
+	do
+		# Accumulate $bugid:s in $@.
+		if read bugid;
+		then
+			set -- "$@" "$bugid";
+		else
+			batch="last";
+		fi
+
+		# Flush?
+		[ "$batch" = "last" -o $# -ge $max_bugs_per_request ] \
+			|| continue;
+		if [ "$batch" = "first" ];
+		then
+			batch="next";
+		else
+			sleep $time_between_requests;
+		fi
+
+		# Create the request url from the accumulated bug IDs.
+		url="$bz/show_bug.cgi?ctype=xml";
+		for field in $fields_to_dump;
+		do	# Request these fields...
+			url="$url&field=$field";
+		done
+		for bugid;
+		do	# ...of these bugs.
+			url="$url&id=$bugid";
+		done
+
+		echo "getting $@..." >&2;
+		set --;
+
+		# Print the contents of the <bugzilla> element.
+		# Do the pretty-printing per batch, because xmllint
+		# keeps the whole document in memory until it's finished.
+		getit "$user" "$pass" "$url" \
+			| xmllint --pretty 1 - \
+			| xmllint --xpath /bugzilla/bug -;
+	done
+
+	# Finish the combined XML.
+	echo;
+	echo '</bugzilla>';
+)
+
+# End of bzdump

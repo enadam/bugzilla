@@ -1,0 +1,4 @@
+humbug.pl		track, view and change Bugzilla bugs in irssi
+humbug-dev.pl		humbug with unfinished features
+bzdump			dump bugreports in XML
+bzstat.pl		do statistical beancounting on downloaded bugreports
